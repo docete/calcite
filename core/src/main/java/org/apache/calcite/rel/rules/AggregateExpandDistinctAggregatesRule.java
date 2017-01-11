@@ -266,7 +266,7 @@ public final class AggregateExpandDistinctAggregatesRule extends RelOptRule {
         relBuilder.peek().getRowType().getFieldList();
     final boolean hasGroupBy = aggregate.getGroupSet().size() > 0;
 
-    SortedSet<Integer> groupSet = new TreeSet<>(aggregate.getGroupSet().asList());
+    final Set<Integer> groupSet = aggregate.getGroupSet().asSet();
 
     // Add the distinct aggregate column(s) to the group-by columns,
     // if not already a part of the group-by
@@ -301,21 +301,14 @@ public final class AggregateExpandDistinctAggregatesRule extends RelOptRule {
     int fakeArg0 = 0;
     for (final AggregateCall aggCall : aggCalls) {
       // We will deal with non-distinct aggregates below
-      if (!aggCall.isDistinct()) {
-        boolean isGroupKeyUsedInAgg = false;
-        for (int arg : aggCall.getArgList()) {
-          if (groupSet.contains(arg)) {
-            isGroupKeyUsedInAgg = true;
-            break;
-          }
-        }
-        if (aggCall.getArgList().size() == 0 || isGroupKeyUsedInAgg) {
-          while (sourceOf.get(fakeArg0) != null) {
-            ++fakeArg0;
-          }
-          fakeArgs.add(fakeArg0);
+      if (!aggCall.isDistinct()
+          && (aggCall.getArgList().isEmpty()
+              || Util.intersects(groupSet, aggCall.getArgList()))) {
+        while (sourceOf.get(fakeArg0) != null) {
           ++fakeArg0;
         }
+        fakeArgs.add(fakeArg0);
+        ++fakeArg0;
       }
     }
     for (final AggregateCall aggCall : aggCalls) {
@@ -351,19 +344,13 @@ public final class AggregateExpandDistinctAggregatesRule extends RelOptRule {
         } else {
           for (int arg : newCall.getArgList()) {
             if (groupSet.contains(arg)) {
-              int fakeArg = fakeArgs.get(fakeArgIdx);
-              callArgMap.put(newCall, fakeArg);
-              sourceOf.put(fakeArg, projects.size());
-              projects.add(
-                      Pair.of((RexNode) new RexInputRef(fakeArg, newCall.getType()),
-                              newCall.getName()));
-              ++fakeArgIdx;
-            } else {
-              sourceOf.put(arg, projects.size());
-              projects.add(
-                      Pair.of((RexNode) new RexInputRef(arg, newCall.getType()),
-                              newCall.getName()));
+              arg = fakeArgs.get(fakeArgIdx++);
+              callArgMap.put(newCall, arg);
             }
+            sourceOf.put(arg, projects.size());
+            projects.add(
+                Pair.of((RexNode) new RexInputRef(arg, newCall.getType()),
+                    newCall.getName()));
           }
         }
       }

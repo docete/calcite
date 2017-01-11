@@ -826,6 +826,42 @@ public class RelOptRulesTest extends RelOptTestBase {
             + " from sales.emp group by rollup(deptno,job)");
   }
 
+  @Test public void testDistinctNonDistinctAggregates() {
+    final String sql = "select emp.empno, count(*), avg(distinct dept.deptno)\n"
+        + "from sales.emp emp inner join sales.dept dept\n"
+        + "on emp.deptno = dept.deptno\n"
+        + "group by emp.empno";
+    final HepProgram program = HepProgram.builder()
+        .addRuleInstance(AggregateExpandDistinctAggregatesRule.JOIN)
+        .build();
+    sql(sql).with(program).check();
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-1558">[CALCITE-1558]
+   * AggregateExpandDistinctAggregatesRule gets field mapping wrong if groupKey
+   * is used in aggregate function</a>. */
+  @Test public void testDistinctNonDistinctAggregatesWithGrouping1() {
+    final String sql = "SELECT deptno,\n"
+        + "  SUM(deptno), SUM(DISTINCT sal), MAX(deptno), MAX(comm)\n"
+        + "FROM emp\n"
+        + "GROUP BY deptno";
+    HepProgram program = new HepProgramBuilder()
+        .addRuleInstance(AggregateExpandDistinctAggregatesRule.JOIN)
+        .build();
+    sql(sql).with(program).check();
+  }
+
+  @Test public void testDistinctNonDistinctAggregatesWithGrouping2() {
+    final String sql = "SELECT deptno, COUNT(deptno), SUM(DISTINCT sal)\n"
+        + "FROM emp\n"
+        + "GROUP BY deptno";
+    HepProgram program = new HepProgramBuilder()
+        .addRuleInstance(AggregateExpandDistinctAggregatesRule.JOIN)
+        .build();
+    sql(sql).with(program).check();
+  }
+
   @Test public void testPushProjectPastFilter() {
     checkPlanning(ProjectFilterTransposeRule.INSTANCE,
         "select empno + deptno from emp where sal = 10 * comm "
@@ -2462,6 +2498,35 @@ public class RelOptRulesTest extends RelOptTestBase {
     checkPlanning(tester, preProgram, new HepPlanner(program), sql, true);
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-1544">[CALCITE-1544]
+   * AggregateJoinTransposeRule fails to preserve row type</a>. */
+  @Test public void testPushAggregateThroughJoin4() throws Exception {
+    final HepProgram preProgram = new HepProgramBuilder()
+        .addRuleInstance(AggregateProjectMergeRule.INSTANCE)
+        .build();
+    final HepProgram program = new HepProgramBuilder()
+        .addRuleInstance(AggregateJoinTransposeRule.EXTENDED)
+        .build();
+    final String sql = "select e.deptno\n"
+        + "from sales.emp as e join sales.dept as d on e.deptno = d.deptno\n"
+        + "group by e.deptno";
+    sql(sql).withPre(preProgram).with(program).check();
+  }
+
+  @Test public void testPushAggregateThroughJoin5() throws Exception {
+    final HepProgram preProgram = new HepProgramBuilder()
+        .addRuleInstance(AggregateProjectMergeRule.INSTANCE)
+        .build();
+    final HepProgram program = new HepProgramBuilder()
+        .addRuleInstance(AggregateJoinTransposeRule.EXTENDED)
+        .build();
+    final String sql = "select e.deptno, d.deptno\n"
+        + "from sales.emp as e join sales.dept as d on e.deptno = d.deptno\n"
+        + "group by e.deptno, d.deptno";
+    sql(sql).withPre(preProgram).with(program).check();
+  }
+
   /** SUM is the easiest aggregate function to split. */
   @Test public void testPushAggregateSumThroughJoin() throws Exception {
     final HepProgram preProgram = new HepProgramBuilder()
@@ -3034,43 +3099,6 @@ public class RelOptRulesTest extends RelOptTestBase {
     HepProgram program = new HepProgramBuilder()
         .addRuleInstance(DateRangeRules.FILTER_INSTANCE)
         .build();
-    sql(sql).with(program).check();
-  }
-
-  @Test public void testDistinctNonDistinctAggregates() {
-    final String sql = "select emp.empno, count(*), avg(distinct dept.deptno)\n"
-        + "from sales.emp emp inner join sales.dept dept\n"
-        + "on emp.deptno = dept.deptno\n"
-        + "group by emp.empno";
-    final HepProgram program = HepProgram.builder()
-        .addRuleInstance(AggregateExpandDistinctAggregatesRule.JOIN)
-        .build();
-    sql(sql).with(program).check();
-  }
-
-  /** Test case for
-   * <a href="https://issues.apache.org/jira/browse/CALCITE-1558">[CALCITE-1558]
-   * Converting an aggregate to a two-level aggregates</a>
-   */
-  @Test public void testDistinctNonDistinctAggregatesWithGrouping1() {
-    final String sql = ""
-        + "SELECT deptno, SUM(deptno), SUM(DISTINCT sal), MAX(deptno), MAX(comm)\n"
-        + "FROM emp\n"
-        + "GROUP BY deptno";
-    HepProgram program = new HepProgramBuilder()
-        .addRuleInstance(AggregateExpandDistinctAggregatesRule.JOIN)
-        .build();
-    sql(sql).with(program).check();
-  }
-
-  @Test public void testDistinctNonDistinctAggregatesWithGrouping2() {
-    final String sql = ""
-            + "SELECT deptno, COUNT(deptno), SUM(DISTINCT sal)\n"
-            + "FROM emp\n"
-            + "GROUP BY deptno";
-    HepProgram program = new HepProgramBuilder()
-            .addRuleInstance(AggregateExpandDistinctAggregatesRule.JOIN)
-            .build();
     sql(sql).with(program).check();
   }
 }
